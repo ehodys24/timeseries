@@ -1,0 +1,221 @@
+---
+title: "Untitled"
+output: 
+  flexdashboard::flex_dashboard:
+    social: [ "twitter",  "facebook", "linkedin", "github"]
+    orientation: rows
+    vertical_layout: fill
+    runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(knitr)
+library(dlookr)
+library(dplyr)
+library(tidyverse) # general utility functions
+library(purrr)
+library(tidyr)
+library(ggplot2)
+library(DT)
+library(rsconnect)
+library(corrplot)
+library(shiny)
+library(Matrix)
+library(fpp)
+library(astsa)
+```
+
+```{r global, include=FALSE}
+# load data in 'global' chunk so it can be shared by all users of the dashboard
+zillow.data <- read.csv("Zip_Zhvi_2bedroom.csv", header=T)
+
+df <- data.frame(z=0, p=0, d=0, q=0)
+```
+
+```{r echo=FALSE, warning=FALSE,message=F, warning=F}
+
+# Load data ---------------------------------------------------------------
+
+zillow.data <- read.csv("Zip_Zhvi_2bedroom.csv", header=T)
+#head(zillow.data)
+
+
+# Subsetting data  --------------------------------------------------------
+
+zillow.data <- subset(zillow.data, City=='New York')
+zillow.data <- subset(zillow.data, RegionID!=62012)  #removed since it has numerous NA's
+
+
+# wide --> long -----------------------------------------------------------
+
+zillow.long<-gather(zillow.data,Year,Price,-c("RegionID","RegionName","City","State","Metro","CountyName","SizeRank"),factor_key = TRUE)
+#head(zillow.long)
+#dim(zillow.long)
+
+invisible(lapply(zillow.long,class))
+
+
+# wrangling date column ---------------------------------------------------
+
+zillow.long$Year<-substring(zillow.long$Year, 2)
+zillow.long$month<- substr(zillow.long$Year, 6, nchar(zillow.long$Year))
+zillow.long$Year<-substr(zillow.long$Year, 1, 4)
+
+zillow.long$day<-1
+zillow.long$date <- as.Date(with(zillow.long, paste(Year, month, day,sep="-")), "%Y-%m-%d")
+
+drops <- c("Year","month","day")
+zillow.long<-zillow.long[ , !(names(zillow.long) %in% drops)]
+
+
+zillow.long$RegionID<-as.factor(zillow.long$RegionID)
+zillow.long$RegionName<-as.factor(zillow.long$RegionName)
+zillow.df<-zillow.long
+#tail(zillow.df)
+
+
+# Sorting data ------------------------------------------------------------
+
+zillow.df<-zillow.df[order(zillow.df$SizeRank),]
+
+
+# Subsetting to consider data from 2006 ---------------------------------------
+
+zillow.df<-zillow.df %>%
+  group_by(RegionID) %>% 
+  filter(date >= as.Date("2006-01-01"))
+#dim(zillow.df)
+#summary(zillow.df)
+
+
+# Retaining only the required cols ----------------------------------------
+
+zillow_subset<-zillow.df[,c('RegionName','Price','date')]
+#dim(zillow_subset)
+zillow_subset<-spread(zillow_subset,RegionName,Price)
+#dim(zillow_subset)
+
+
+# Converting to timeseries ------------------------------------------------
+
+zillow.forecast<-ts(zillow_subset,frequency = 12,start = 2006)
+#head(zillow.forecast)
+#dim(zillow.forecast)
+zillow.forecast<-zillow.forecast[,-1]
+#head(zillow.forecast)
+
+```
+
+
+Sidebar {.sidebar}
+=======================================================================
+
+### Input Controls
+
+
+
+```{r}
+zipcodes = c("10003", "10011","10025")
+
+zipcodeoptions = data.frame(Zipcodes=zipcodes)
+
+selectInput("genreInput", label = "Genres",
+          choices = c("Select Zipcode", levels(zipcodeoptions$Zipcodes)), selected = "10003")
+
+sliderInput("P", "p:",
+            min = 0, max = 3, value = 1, step = 1.0
+)
+
+sliderInput("D", "d:",
+            min = 0, max =3, value = 1, step = 1.0
+)
+
+sliderInput("Q", "q:",
+            min = 0, max =3, value = 1, step = 1.0
+)
+
+sliderInput("bigP", "P:",
+            min = 0, max = 6, value = 1, step = 1.0
+)
+
+```
+
+
+Dashboard
+=======================================================================
+<!-- Column {data-width=650} -->
+<!-- ----------------------------------------------------------------------- -->
+
+<!-- ### Chart A -->
+
+<!-- ```{r} -->
+<!-- renderDataTable({ -->
+
+<!--   df[1,2] = input$P   -->
+<!--     df[1,3] = input$D   -->
+<!--       df[1,4] = input$Q   -->
+<!--       df[1,1] = as.numeric(input$genreInput) -->
+<!--   DT::datatable(df) -->
+<!-- }) -->
+<!-- ``` -->
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Chart B
+
+```{r}
+
+renderPlot({
+  ts<-zillow.forecast[,9]
+  Pval= as.numeric( input$P  )
+  DVal = as.numeric(input$D  )
+  BigPVal = as.numeric(input$bigP  )
+  Qval = as.numeric(input$Q  )
+ Zipval =as.numeric(input$genreInput)
+  
+#fit1 <- sarima(data,p=Pval, d = DVal, q = Qval ,P=BigPVal,Q=0,D=0,S=12,Model = TRUE)
+#fit1 <- Arima(ts, order=c(0,2,3), seasonal=c(0,0,0),include.constant = FALSE,lambda=0))
+ 
+(fit1 <- Arima(ts, order=c(Pval,DVal,Qval), seasonal=c(BigPVal,0,0),include.constant = FALSE,lambda=0))
+
+
+fit1 %>% forecast(h=36) %>% autoplot()
+})
+```
+
+
+
+Summary
+=======================================================================
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Section A
+
+
+Diagnosis
+=======================================================================
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Section A
+
+
+Forecasts
+=======================================================================
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Section A
+
+```{r}
+
+
+```{r}
+
+
+```{r}
+
+
